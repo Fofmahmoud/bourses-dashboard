@@ -14,6 +14,8 @@ KOBO_SERVER = st.secrets.get("KOBO_SERVER", "https://kf.kobotoolbox.org")
 KOBO_TOKEN = st.secrets["KOBO_TOKEN"]
 ASSET_UID = st.secrets["KOBO_ASSET_UID"]
 APP_PASSWORD = st.secrets.get("APP_PASSWORD", "")
+# Sans mot de passe : mode public, aucune donnée nominative n'est affichée
+PRIVATE = bool(APP_PASSWORD)
 
 QUOTAS = {"Imagerie médicale / Radiologie": 150, "Anesthésie": 150,
           "Soins pédiatriques": 50, "Soins infirmiers": 50}
@@ -89,6 +91,11 @@ if not check_password():
 
 st.title("🎓 Candidatures aux 400 bourses UMG – MSHP 2026-2027")
 
+st.sidebar.header("Filtres")
+if st.sidebar.button("🔄 Actualiser"):
+    st.cache_data.clear()
+    st.rerun()
+
 try:
     df = load_data()
 except Exception as e:  # noqa: BLE001
@@ -97,15 +104,11 @@ except Exception as e:  # noqa: BLE001
 
 if df.empty:
     st.info("Aucune candidature reçue pour le moment.")
+    st.caption(f"Projet Kobo interrogé : {ASSET_UID} – serveur : {KOBO_SERVER}. "
+               "Si des soumissions existent dans Kobo, vérifiez cet identifiant puis cliquez sur « Actualiser ».")
     st.stop()
 
 # ------------------------------------------------------------------ Filtres
-st.sidebar.header("Filtres")
-if st.sidebar.button("🔄 Actualiser"):
-    st.cache_data.clear()
-    st.rerun()
-
-
 def multiselect(label, col):
     if col not in df:
         return None
@@ -119,7 +122,7 @@ for label, col in [("Programme (1er choix)", "programme_1"), ("Région d'affecta
     sel = multiselect(label, col)
     if sel:
         f = f[f[col].isin(sel)]
-if st.sidebar.checkbox("Afficher uniquement les doublons potentiels"):
+if PRIVATE and st.sidebar.checkbox("Afficher uniquement les doublons potentiels"):
     f = f[f["doublon"]]
 
 # ------------------------------------------------------------------ Indicateurs
@@ -175,10 +178,14 @@ with right:
                     use_container_width=True)
 
 # ------------------------------------------------------------------ Tableau et export
-st.subheader("Liste des candidatures")
-cols = [c for c in ["ref_candidature", "nom_complet", "sexe", "age", "telephone", "profession",
-                    "structure_nom", "region_actuelle", "parcours", "programme_1", "programme_2",
-                    "hopital_pref_1", "date_depot", "doublon"] if c in f]
-st.dataframe(f[cols], hide_index=True, use_container_width=True)
-st.download_button("⬇️ Exporter en CSV", f[cols].to_csv(index=False).encode("utf-8-sig"),
-                   "candidatures_bourses.csv", "text/csv")
+if PRIVATE:
+    st.subheader("Liste des candidatures")
+    cols = [c for c in ["ref_candidature", "nom_complet", "sexe", "age", "telephone", "profession",
+                        "structure_nom", "region_actuelle", "parcours", "programme_1", "programme_2",
+                        "hopital_pref_1", "date_depot", "doublon"] if c in f]
+    st.dataframe(f[cols], hide_index=True, use_container_width=True)
+    st.download_button("⬇️ Exporter en CSV", f[cols].to_csv(index=False).encode("utf-8-sig"),
+                       "candidatures_bourses.csv", "text/csv")
+else:
+    st.caption("🔒 Accès public : seules les statistiques sont affichées. "
+               "La liste nominative des candidats n'est pas disponible.")
