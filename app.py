@@ -2,6 +2,7 @@
 """Tableau de bord Streamlit - Candidatures aux 400 bourses UMG / MSHP 2026-2027
 Source : API KoboToolbox (formulaire bourses_umg_mshp_2027)
 """
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import requests
@@ -16,6 +17,7 @@ ASSET_UID = st.secrets["KOBO_ASSET_UID"]
 APP_PASSWORD = st.secrets.get("APP_PASSWORD", "")
 # Sans mot de passe : mode public, aucune donnée nominative n'est affichée
 PRIVATE = bool(APP_PASSWORD)
+AGE_MIN, AGE_MAX = 18, 70  # âges plausibles (bornes du formulaire)
 
 QUOTAS = {"Imagerie médicale / Radiologie": 150, "Anesthésie": 150,
           "Soins pédiatriques": 50, "Soins infirmiers": 50}
@@ -69,7 +71,19 @@ def load_data() -> pd.DataFrame:
     for col in ("age", "anciennete"):
         if col in df:
             df[col] = pd.to_numeric(df[col], errors="coerce")
-    # Libellés lisibles
+    # Âge recalculé depuis la date de naissance (plus fiable que le champ calculé du formulaire)
+    df["age_suspect"] = False
+    if "date_naissance" in df:
+        dn = pd.to_datetime(df["date_naissance"], errors="coerce")
+        sub = pd.to_datetime(df["_submission_time"], errors="coerce", utc=True).dt.tz_localize(None)
+        age_calc = np.floor((sub - dn).dt.days / 365.25)
+        has_date = df["date_naissance"].fillna("").astype(str).str.strip().ne("")
+        valid = age_calc.between(AGE_MIN, AGE_MAX)
+        df["age_suspect"] = has_date & ~valid
+        df["age"] = age_calc.where(valid)
+    elif "age" in df:
+        df["age_suspect"] = df["age"].notna() & ~df["age"].between(AGE_MIN, AGE_MAX)
+        df.loc[df["age_suspect"], "age"] = pd.NA
     for col, kind in [("programme_1", "programme"), ("programme_2", "programme"),
                       ("region_actuelle", "region"), ("region_pref_1", "region"),
                       ("sexe", "sexe"), ("statut", "statut")]:
@@ -124,6 +138,10 @@ for label, col in [("Programme (1er choix)", "programme_1"), ("Région d'affecta
         f = f[f[col].isin(sel)]
 if PRIVATE and st.sidebar.checkbox("Afficher uniquement les doublons potentiels"):
     f = f[f["doublon"]]
+
+if f["age_suspect"].any():
+    st.warning(f"{int(f['age_suspect'].sum())} candidature(s) ont une date de naissance incohérente : "
+               "leur âge est ignoré dans les statistiques. Vérifiez-les dans Kobo.")
 
 # ------------------------------------------------------------------ Indicateurs
 c1, c2, c3, c4 = st.columns(4)
